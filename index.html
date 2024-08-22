@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL Exploration Interface</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.30.1/min/vs/loader.min.js"></script>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            display: flex;
+            height: 100%;
+        }
+
+        .sidebar {
+            width: 250px;
+            background-color: #f0f0f0;
+            padding: 10px;
+            overflow-y: auto;
+        }
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #editor {
+            height: 40%;
+        }
+
+        #results {
+            height: 60%;
+            width: calc(100vw - 270px);
+            padding: 10px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .results-table-container {
+            flex: 1;
+            overflow: auto;
+        }
+
+        .table-list {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        .table-item {
+            cursor: pointer;
+            padding: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .table-item:hover {
+            background-color: #e0e0e0;
+        }
+
+        .column-list {
+            list-style-type: none;
+            padding-left: 20px;
+            display: none;
+        }
+
+        .column-item {
+            padding: 3px;
+            font-size: 0.9em;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            min-width: 100px;
+            /* Ensure a minimum width for columns */
+        }
+
+        th {
+            background-color: #f2f2f2;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        #run-button {
+            margin: 10px;
+            padding: 5px 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        #run-button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h3>Tables</h3>
+            <ul class="table-list" id="table-list"></ul>
+        </div>
+        <div class="main">
+            <div id="editor"></div>
+            <button id="run-button">Run Query</button>
+            <div id="results">
+                <div class="results-table-container"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Mock database tables with column information
+        const tables = {
+            users: {
+                columns: [
+                    { name: 'id', type: 'INTEGER' },
+                    { name: 'name', type: 'VARCHAR(255)' },
+                    { name: 'email', type: 'VARCHAR(255)' }
+                ],
+                data: [
+                    { id: 1, name: 'John Doe', email: 'john@example.com' },
+                    { id: 2, name: 'Jane Smith', email: 'jane@example.com' },
+                ]
+            },
+            orders: {
+                columns: [
+                    { name: 'id', type: 'INTEGER' },
+                    { name: 'user_id', type: 'INTEGER' },
+                    { name: 'product', type: 'VARCHAR(255)' },
+                    { name: 'quantity', type: 'INTEGER' }
+                ],
+                data: [
+                    { id: 1, user_id: 1, product: 'Widget', quantity: 5 },
+                    { id: 2, user_id: 2, product: 'Gadget', quantity: 3 },
+                ]
+            },
+        };
+
+        // Populate table list
+        const tableList = document.getElementById('table-list');
+        fetch('/tables')
+            .then(response => response.json())
+            .then(data => data.forEach(tab => {
+                const li = document.createElement('li');
+                li.className = 'table-item';
+                li.innerHTML = `
+                <span>${tab.name}</span>
+                <ul class="column-list">
+                    ${tab.columns.map(col =>
+                    `<li class="column-item">${col.name} (${col.type})</li>`
+                ).join('')}
+                </ul>
+            `;
+                li.querySelector('span').onclick = () => {
+                    const columnList = li.querySelector('.column-list');
+                    columnList.style.display = columnList.style.display === 'none' ? 'block' : 'none';
+                };
+                li.querySelectorAll('.column-item').forEach(colItem => {
+                    colItem.onclick = () => insertColumnName(tab, colItem.textContent.split(' ')[0]);
+                });
+                tableList.appendChild(li);
+            }));
+
+        // Initialize Monaco Editor
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.30.1/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+            window.editor = monaco.editor.create(document.getElementById('editor'), {
+                value: 'SELECT * FROM users',
+                language: 'sql',
+                theme: 'vs-dark',
+            });
+        });
+
+        function insertColumnName(tableName, columnName) {
+            const position = editor.getPosition();
+            editor.executeEdits('', [{
+                range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+                text: `${tableName}.${columnName}`,
+            }]);
+            editor.focus();
+        }
+
+        // // Run query button click handler
+        // document.getElementById('run-button').addEventListener('click', function () {
+        //     const query = editor.getValue();
+        //     try {
+        //         const result = executeQuery(query);
+        //         displayResults(result);
+        //     } catch (error) {
+        //         displayError(error);
+        //     }
+        // });
+
+        // Run query button click handler
+        document.getElementById('run-button').addEventListener('click', function () {
+            const query = editor.getValue();
+            fetch('/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ sql: query }),
+            })
+                .then(response => response.json())
+                .then(data => displayResults(data))
+                .catch(error => displayError(error));
+        });
+
+        function displayResults(results) {
+            const resultsDiv = document.querySelector('.results-table-container');
+            if (results.length === 0) {
+                resultsDiv.innerHTML = 'No results found';
+                return;
+            }
+
+            let table = '<table><tr>';
+            // Create header
+            results.columns.forEach(col => {
+                table += `<th>${col}</th>`;
+            });
+            table += '</tr>';
+
+            // Create rows
+            results.rows.forEach(row => {
+                table += '<tr>';
+                for (let key in row) {
+                    table += `<td>${row[key]}</td>`;
+                }
+                table += '</tr>';
+            });
+            table += '</table>';
+
+            resultsDiv.innerHTML = table;
+        }
+
+        function displayError(error) {
+            document.getElementById('results').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+        }
+    </script>
+</body>
+
+</html>
